@@ -71,7 +71,7 @@ async function execute(interaction) {
   const timeInput = interaction.options.getString('time');
 
   const { bosses } = loadBosses();
-  const boss = bosses.find(b => b.id === bossId);
+  const boss = bosses.find(b => b.id === bossId || b.name.toLowerCase() === bossId.toLowerCase());
   if (!boss) {
     return interaction.reply({ content: 'Boss not found. Use `/boss-list` to see available bosses.', ephemeral: true });
   }
@@ -100,7 +100,8 @@ async function execute(interaction) {
     .addFields(
       { name: 'Killed at', value: `<t:${Math.floor(killedAt.getTime() / 1000)}:F>`, inline: true },
       { name: 'Respawns at', value: `<t:${spawnTs}:F>`, inline: true },
-      { name: 'Respawn in', value: `<t:${spawnTs}:R>`, inline: true },
+      { name: 'Timer set', value: `${boss.respawnHours}h from kill`, inline: true },
+      { name: 'Countdown', value: `<t:${spawnTs}:R>`, inline: false },
     )
     .setTimestamp();
 
