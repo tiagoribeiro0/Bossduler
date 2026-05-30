@@ -2,26 +2,43 @@ const { SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const { loadBosses, loadKills } = require('../data');
 
 const TIMEZONE = process.env.TIMEZONE || 'UTC';
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-function nextFixedSpawnTs(scheduleTime) {
+function nextFixedSpawnTs(scheduleTime, days) {
   const [h, m] = scheduleTime.split(':').map(Number);
   const now = new Date();
 
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TIMEZONE,
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  }).formatToParts(now);
+  for (let offset = 0; offset <= 7; offset++) {
+    const candidate = new Date(now);
+    candidate.setDate(candidate.getDate() + offset);
+    candidate.setSeconds(0, 0);
 
-  const get = type => parts.find(p => p.type === type).value;
-  const todayLocal = new Date(`${get('year')}-${get('month')}-${get('day')}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`);
+    const localParts = new Intl.DateTimeFormat('en-US', {
+      timeZone: TIMEZONE,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      weekday: 'short',
+    }).formatToParts(candidate);
 
-  const offsetMs = now.getTime() - new Date(new Date().toLocaleString('en-US', { timeZone: 'UTC' })).getTime()
-    + new Date(new Date().toLocaleString('en-US', { timeZone: TIMEZONE })).getTime() - now.getTime();
+    const get = type => localParts.find(p => p.type === type).value;
+    const localDayName = get('weekday'); // "Mon", "Tue", etc.
+    const localDayNum = DAY_NAMES.indexOf(localDayName);
 
-  const candidate = new Date(todayLocal.getTime() - offsetMs);
-  if (candidate <= now) candidate.setDate(candidate.getDate() + 1);
-  return Math.floor(candidate.getTime() / 1000);
+    if (days && !days.includes(localDayNum)) continue;
+
+    const year = get('year');
+    const month = get('month');
+    const day = get('day');
+
+    const localISO = `${year}-${month}-${day}T${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:00`;
+    const fakeUTC = new Date(localISO + 'Z');
+    const utcStr = fakeUTC.toLocaleString('en-US', { timeZone: 'UTC' });
+    const localStr = fakeUTC.toLocaleString('en-US', { timeZone: TIMEZONE });
+    const offsetMs = (new Date(utcStr) - new Date(localStr));
+    const spawnDate = new Date(fakeUTC.getTime() - offsetMs);
+
+    if (spawnDate > now) return Math.floor(spawnDate.getTime() / 1000);
+  }
+  return null;
 }
 
 const data = new SlashCommandBuilder()
@@ -46,11 +63,13 @@ async function execute(interaction) {
 
   for (const boss of bosses) {
     if (boss.type === 'fixed') {
-      const schedules = (boss.schedules || []).map(s => {
-        const ts = nextFixedSpawnTs(s);
-        return `\`${s}\` → <t:${ts}:F> (<t:${ts}:R>)`;
+      const daysLabel = boss.days ? boss.days.map(d => DAY_NAMES[d]).join(', ') : 'Every day';
+      const scheduleLines = (boss.schedules || []).map(s => {
+        const ts = nextFixedSpawnTs(s, boss.days || null);
+        return ts ? `\`${s}\` → <t:${ts}:F> (<t:${ts}:R>)` : `\`${s}\``;
       }).join('\n') || 'No schedules set';
-      embed.addFields({ name: `🗓️ ${boss.name}`, value: schedules });
+      const importantTag = boss.important ? ' ⭐' : '';
+      embed.addFields({ name: `🗓️ ${boss.name}${importantTag}`, value: `**Days:** ${daysLabel}\n${scheduleLines}` });
     } else {
       const timer = timerMap[boss.id];
       let value = `Respawns **${boss.respawnHours}h** after kill`;
@@ -60,7 +79,8 @@ async function execute(interaction) {
       } else {
         value += '\nNo active timer — use `/killed` after a kill';
       }
-      embed.addFields({ name: `⚔️ ${boss.name}`, value });
+      const importantTag = boss.important ? ' ⭐' : '';
+      embed.addFields({ name: `⚔️ ${boss.name}${importantTag}`, value });
     }
   }
 
