@@ -13,7 +13,7 @@ function getTZOffset(date, timezone) {
 function zonedToUTC(localISOString, timezone) {
   const fakeUTC = new Date(localISOString + 'Z');
   const offset = getTZOffset(fakeUTC, timezone);
-  return new Date(fakeUTC.getTime() - offset * 60000);
+  return new Date(fakeUTC.getTime() + offset * 60000);
 }
 
 function parseUserTime(input) {
